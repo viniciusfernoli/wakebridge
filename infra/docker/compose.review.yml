@@ -1,0 +1,46 @@
+# Local smoke for built Linux images, migrations and Caddy. No public TLS claim.
+name: wakebridge-review
+services:
+  db:
+    image: postgres:17.7-alpine
+    environment:
+      POSTGRES_USER: wakebridge
+      POSTGRES_PASSWORD: review-only-password
+      POSTGRES_DB: wakebridge
+    volumes: ["review-postgres:/var/lib/postgresql/data"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U wakebridge -d wakebridge"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+  api:
+    image: wakebridge-api:review
+    environment:
+      DATABASE_URL: postgresql://wakebridge:review-only-password@db:5432/wakebridge
+      WEB_ORIGIN: http://localhost:3200
+      NODE_ENV: development
+      PORT: 4100
+    depends_on:
+      db: { condition: service_healthy }
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:4100/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 15s
+  web:
+    image: wakebridge-web:review
+    depends_on:
+      api: { condition: service_healthy }
+  caddy:
+    image: caddy:2-alpine
+    ports: ["127.0.0.1:3200:80"]
+    volumes: ["../caddy/Caddyfile.review:/etc/caddy/Caddyfile:ro"]
+    depends_on: [web, api]
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1/api/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+volumes:
+  review-postgres:

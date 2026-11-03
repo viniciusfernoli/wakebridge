@@ -1,0 +1,78 @@
+name: CI
+on:
+  push:
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  node:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17.7-alpine
+        env:
+          POSTGRES_USER: wakebridge
+          POSTGRES_PASSWORD: ci-only-password
+          POSTGRES_DB: wakebridge
+        ports: ["55432:5432"]
+        options: --health-cmd "pg_isready -U wakebridge" --health-interval 5s --health-timeout 3s --health-retries 15
+    env:
+      DATABASE_URL: postgresql://wakebridge:ci-only-password@localhost:55432/wakebridge
+      WEB_ORIGIN: http://localhost:3100
+      NEXT_TELEMETRY_DISABLED: 1
+      TURBO_TELEMETRY_DISABLED: 1
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm run db:generate
+      - run: npm run lint
+      - run: npm run build
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run test:relays
+      - run: npm audit --omit=dev
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: agents/windows/go.mod
+          cache-dependency-path: agents/windows/go.sum
+      - run: go test -race ./...
+        working-directory: agents/windows
+      - run: go vet ./...
+        working-directory: agents/windows
+      - run: ./scripts/build-windows.ps1
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wakebridge-windows-amd64
+          path: .local/wakebridge-windows-amd64.zip
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker build --target api -t wakebridge-api:ci -f infra/docker/Dockerfile .
+      - run: docker build --target web -t wakebridge-web:ci -f infra/docker/Dockerfile .
+  android:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+      - uses: android-actions/setup-android@v3
+        with:
+          cmdline-tools-version: 15859902
+      - run: sdkmanager 'platforms;android-37.0' 'build-tools;36.0.0'
+      - run: chmod +x gradlew && ./gradlew --no-daemon testDebugUnitTest lintDebug assembleDebug
+        working-directory: apps/agent-android
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wakebridge-android-debug
+          path: apps/agent-android/app/build/outputs/apk/debug/app-debug.apk

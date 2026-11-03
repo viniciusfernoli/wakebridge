@@ -1,0 +1,19 @@
+{
+  "$schema": "https://turbo.build/schema.json",
+  "globalEnv": [
+    "DATABASE_URL",
+    "WEB_ORIGIN",
+    "NODE_ENV",
+    "API_INTERNAL_URL",
+    "PORT",
+    "REGISTRATION_ENABLED"
+  ],
+  "tasks": {
+    "build": {
+      "dependsOn": ["^build"],
+      "outputs": ["dist/**", ".next/**", "!.next/cache/**"]
+    },
+    "dev": { "cache": false, "persistent": true },
+    "typecheck": { "dependsOn": ["^build"] }
+  }
+}

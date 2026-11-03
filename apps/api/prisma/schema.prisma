@@ -1,0 +1,226 @@
+generator client {
+  provider = "prisma-client-js"
+  engineType = "client"
+}
+datasource db {
+  provider = "postgresql"
+}
+enum Role {
+  OWNER
+  OPERATOR
+  VIEWER
+}
+model User {
+  id String @id @default(uuid()) @db.Uuid
+  email String @unique
+  name String
+  passwordHash String
+  createdAt DateTime @default(now())
+  sessions Session[]
+  memberships Membership[]
+}
+model Session {
+  id String @id @default(uuid()) @db.Uuid
+  tokenHash String @unique
+  userId String @db.Uuid
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expiresAt DateTime
+  @@index([expiresAt])
+}
+model Workspace {
+  id String @id @default(uuid()) @db.Uuid
+  name String
+  createdAt DateTime @default(now())
+  memberships Membership[]
+  devices Device[]
+  pairings Pairing[]
+  audits Audit[]
+  operations Operation[]
+  links RelayLink[]
+  connectivityTests ConnectivityTest[]
+}
+model Membership {
+  userId String @db.Uuid
+  workspaceId String @db.Uuid
+  role Role @default(VIEWER)
+  canWake Boolean @default(false)
+  canPower Boolean @default(false)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  @@id([userId, workspaceId])
+}
+model Pairing {
+  id String @id @default(uuid()) @db.Uuid
+  codeHash String @unique
+  secretHash String @unique
+  name String
+  platform String
+  workspaceId String? @db.Uuid
+  workspace Workspace? @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  approvedBy String? @db.Uuid
+  expiresAt DateTime
+  consumedAt DateTime?
+  createdAt DateTime @default(now())
+  @@index([expiresAt])
+}
+model Device {
+  id String @id @default(uuid()) @db.Uuid
+  workspaceId String @db.Uuid
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  name String
+  platform String
+  hostname String?
+  osVersion String?
+  architecture String?
+  agentVersion String?
+  cpu String?
+  memoryBytes BigInt?
+  capabilities String[] @default([])
+  lanEnabled Boolean @default(false)
+  networkEpoch String?
+  relayApproved Boolean @default(false)
+  relayPriority Int @default(0)
+  activeSession String? @db.Uuid
+  lastSeen DateTime?
+  createdAt DateTime @default(now())
+  credentials Credential[]
+  interfaces NetworkInterface[]
+  observations Observation[]
+  targetOperations Operation[]
+  relayAttempts CommandAttempt[]
+  outgoingLinks RelayLink[] @relation("relay")
+  incomingLinks RelayLink[] @relation("target")
+  outgoingTests ConnectivityTest[] @relation("probeSource")
+  incomingTests ConnectivityTest[] @relation("probeTarget")
+  @@index([workspaceId, lastSeen])
+}
+model Credential {
+  id String @id @default(uuid()) @db.Uuid
+  deviceId String @db.Uuid
+  device Device @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  tokenHash String @unique
+  createdAt DateTime @default(now())
+  revokedAt DateTime?
+}
+model NetworkInterface {
+  id String @id @default(uuid()) @db.Uuid
+  deviceId String @db.Uuid
+  device Device @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  nativeId String
+  name String
+  mac String?
+  addresses Json
+  isUp Boolean
+  present Boolean @default(true)
+  wolSupport String @default("unknown")
+  lastSeen DateTime @default(now())
+  outgoingLinks RelayLink[] @relation("relayInterface")
+  incomingLinks RelayLink[] @relation("targetInterface")
+  outgoingTests ConnectivityTest[] @relation("probeSourceInterface")
+  incomingTests ConnectivityTest[] @relation("probeTargetInterface")
+  @@unique([deviceId, nativeId])
+}
+model Observation {
+  id String @id @default(uuid()) @db.Uuid
+  deviceId String @db.Uuid
+  device Device @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  state String
+  reason String
+  createdAt DateTime @default(now())
+  @@index([deviceId, createdAt])
+}
+model Audit {
+  id String @id @default(uuid()) @db.Uuid
+  workspaceId String @db.Uuid
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  actorId String? @db.Uuid
+  action String
+  targetId String?
+  createdAt DateTime @default(now())
+  @@index([workspaceId, createdAt])
+}
+
+model Operation {
+  id String @id @default(uuid()) @db.Uuid
+  workspaceId String @db.Uuid
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  targetId String @db.Uuid
+  target Device @relation(fields: [targetId], references: [id], onDelete: Cascade)
+  actorId String @db.Uuid
+  kind String
+  state String @default("QUEUED")
+  reason String?
+  idempotencyKey String
+  createdAt DateTime @default(now())
+  expiresAt DateTime
+  completedAt DateTime?
+  attempts CommandAttempt[]
+  @@unique([workspaceId, idempotencyKey])
+  @@index([state, expiresAt])
+  @@index([workspaceId, createdAt])
+}
+model CommandAttempt {
+  id String @id @default(uuid()) @db.Uuid
+  operationId String @db.Uuid
+  operation Operation @relation(fields: [operationId], references: [id], onDelete: Cascade)
+  relayId String @db.Uuid
+  relay Device @relation(fields: [relayId], references: [id], onDelete: Cascade)
+  sessionId String @db.Uuid
+  linkId String @db.Uuid
+  link RelayLink @relation(fields: [linkId], references: [id], onDelete: Restrict)
+  state String @default("SENT")
+  reason String?
+  createdAt DateTime @default(now())
+  ackDeadline DateTime
+  payload Json @default("{}")
+  completedAt DateTime?
+  @@index([operationId, createdAt])
+}
+model RelayLink {
+  id String @id @default(uuid()) @db.Uuid
+  workspaceId String @db.Uuid
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  relayId String @db.Uuid
+  relay Device @relation("relay", fields: [relayId], references: [id], onDelete: Cascade)
+  targetId String @db.Uuid
+  target Device @relation("target", fields: [targetId], references: [id], onDelete: Cascade)
+  relayInterfaceId String @db.Uuid
+  targetInterfaceId String @db.Uuid
+  relayInterface NetworkInterface @relation("relayInterface", fields:[relayInterfaceId], references:[id], onDelete:Cascade)
+  targetInterface NetworkInterface @relation("targetInterface", fields:[targetInterfaceId], references:[id], onDelete:Cascade)
+  relayAddress String
+  targetAddress String
+  relayEpoch String
+  targetEpoch String
+  prefixLength Int
+  broadcast String
+  mac String
+  evidence String
+  verifiedAt DateTime @default(now())
+  expiresAt DateTime
+  successes Int @default(0)
+  failures Int @default(0)
+  attempts CommandAttempt[]
+  @@unique([relayId, targetId, relayInterfaceId, targetInterfaceId])
+  @@index([workspaceId, targetId, expiresAt])
+}
+model ConnectivityTest {
+  id String @id @default(uuid()) @db.Uuid
+  workspaceId String @db.Uuid
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  sourceId String @db.Uuid
+  targetId String @db.Uuid
+  sourceInterfaceId String @db.Uuid
+  targetInterfaceId String @db.Uuid
+  source Device @relation("probeSource",fields:[sourceId],references:[id],onDelete:Cascade)
+  target Device @relation("probeTarget",fields:[targetId],references:[id],onDelete:Cascade)
+  sourceInterface NetworkInterface @relation("probeSourceInterface",fields:[sourceInterfaceId],references:[id],onDelete:Cascade)
+  targetInterface NetworkInterface @relation("probeTargetInterface",fields:[targetInterfaceId],references:[id],onDelete:Cascade)
+  secretHash String
+  state String @default("PREPARING")
+  sourceProof Json?
+  targetProof Json?
+  createdAt DateTime @default(now())
+  expiresAt DateTime
+  @@index([workspaceId, state, expiresAt])
+}

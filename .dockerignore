@@ -1,0 +1,10 @@
+**/node_modules
+**/.next
+**/dist
+.git
+.env
+.local
+.tools
+**/.gradle
+**/.kotlin
+apps/agent-android/**/build
